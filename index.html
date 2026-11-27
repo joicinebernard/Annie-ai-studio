@@ -2591,6 +2591,7 @@ async function parLots(ids, taille, faire) {
 }
 async function demanderJSON(tache, imgs, suivi) {
   if (autoActif) {
+    autoInfo("Écriture automatique en cours…");
     if (!META) throw {code:"meta"};
     const j = jeton;
     try {
@@ -2599,7 +2600,7 @@ async function demanderJSON(tache, imgs, suivi) {
       for (const b of (imgs||[]).slice(0,6)) { const u=await dataURLAuto(b); content.push({type:"image_url",image_url:{url:u}}); }
       const r=await puter.ai.chat([{role:"user",content}],{model:document.getElementById("auto-texte").value.trim()});
       if(j!==jeton) throw {code:"perime"};
-      return lireJSON(typeof r==="string"?r:r.message.content);
+      const result=lireJSON(typeof r==="string"?r:r.message.content);autoInfo("Écriture automatique terminée.");return result;
     } catch(e) { if(e.code==="perime") throw e; autoInfo("Écriture : "+(e.message||e.code||String(e))); throw e; }
   }
 
@@ -3813,33 +3814,39 @@ if (versionChatGPT) {
 
 let autoActif=false, autoBusy=false;
 const panneau=document.createElement("section"); panneau.className="carte"; panneau.style.marginBottom="18px";
-panneau.innerHTML=`<h2>Annie AI Studio V2 — Automatique (test)</h2><p class="sous">Connexion Internet et compte Puter nécessaires. Les quotas gratuits ne sont pas garantis. Ne valide aucun achat si tu souhaites rester à 0 €.</p><div class="actions"><button class="btn calme" id="auto-login">Connexion Puter</button><button class="btn calme" id="auto-switch">Mode manuel (actuel)</button></div><details><summary>Modèles IA modifiables</summary><label>Texte <input type="text" id="auto-texte" value="gpt-4o-mini"></label><label>Image <input type="text" id="auto-image" value="black-forest-labs/FLUX.1-schnell"></label><label>Vidéo <input type="text" id="auto-video" value="vidu/vidu-q3"></label></details><div class="actions"><button class="btn calme" id="auto-p">Générer un portrait</button><button class="btn calme" id="auto-s">Générer une image de scène</button><button class="btn calme" id="auto-v">Générer une vidéo (test texte)</button></div><p class="sous">Les vidéos de test utilisent le texte uniquement : la référence visuelle, la durée, le format et l'audio ne sont pas garantis. Télécharge chaque résultat avant de quitter.</p><p id="auto-status" role="status" style="overflow-wrap:anywhere"></p><div id="auto-media"></div>`;
+panneau.innerHTML=`<h2>Annie AI Studio V3 — Automatique</h2><p class="sous">Connexion Internet et compte Puter nécessaires. Les quotas gratuits ne sont pas garantis. Ne valide aucun achat si tu souhaites rester à 0 €.</p><div class="actions"><button class="btn calme" id="auto-login">Connexion Puter</button><button class="btn calme" id="auto-switch">Mode manuel (actuel)</button></div><details><summary>Modèles IA modifiables</summary><label>Texte <input type="text" id="auto-texte" value="gpt-4o-mini"></label><label>Image <input type="text" id="auto-image" value="black-forest-labs/FLUX.1-schnell"></label><label>Vidéo <input type="text" id="auto-video" value="vidu/vidu-q3"></label></details><label for="auto-free">Prompt libre (facultatif, pour tester sans histoire)</label><textarea id="auto-free" rows="3" placeholder="Portrait cinématographique d’une femme adulte, format vertical 9:16"></textarea><p id="auto-status" role="status" aria-live="polite" style="overflow-wrap:anywhere"></p><div class="actions"><button class="btn calme" id="auto-p">Générer un portrait</button><button class="btn calme" id="auto-s">Générer une image de scène</button><button class="btn calme" id="auto-v">Générer une vidéo (test texte)</button></div><p class="sous">Les vidéos de test utilisent le texte uniquement : la référence visuelle, la durée, le format et l'audio ne sont pas garantis. Télécharge chaque résultat avant de quitter.</p><div id="auto-media"></div>`;
 document.querySelector("main").prepend(panneau);
 function autoInfo(t){document.getElementById("auto-status").textContent=t;}
+function autoMode(v){autoActif=v;document.getElementById("auto-switch").textContent=v?"Mode automatique (actuel)":"Mode manuel (actuel)";}
+async function autoCheck(){try{if(window.puter?.auth?.isSignedIn && await puter.auth.isSignedIn()){document.getElementById("auto-login").textContent="Puter connecté";autoMode(true);autoInfo("Connexion détectée. Tu peux tester un portrait.");}}catch(e){autoInfo("Vérification : "+String(e));}}
 function dataURLAuto(b){return new Promise((ok,ko)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=ko;r.readAsDataURL(b);});}
-document.getElementById("auto-login").onclick=async()=>{try{await puter.auth.signIn();autoInfo("Connexion réussie.");}catch(e){autoInfo("Connexion : "+(e.message||String(e)));}};
-document.getElementById("auto-switch").onclick=e=>{autoActif=!autoActif;e.currentTarget.textContent=autoActif?"Mode automatique (actuel)":"Mode manuel (actuel)";};
+document.getElementById("auto-login").onclick=async()=>{try{if(!window.puter?.auth)throw new Error("Puter indisponible. Recharge la page.");autoInfo("Connexion en cours : sélectionne ton compte dans la fenêtre Puter.");if(!(await puter.auth.isSignedIn()))await puter.auth.signIn();if(!(await puter.auth.isSignedIn()))throw new Error("Connexion non confirmée.");await autoCheck();}catch(e){autoInfo("Connexion : "+(e.message||String(e)));}};
+document.getElementById("auto-switch").onclick=()=>autoMode(!autoActif);
+window.addEventListener('focus',()=>{if(!autoActif&&!autoBusy)autoCheck();});autoCheck();
 async function autoMedia(k){
  if(autoBusy)return;
+ let libre=document.getElementById("auto-free").value.trim(); let x=null,t=libre;
+ if(!libre){
  if(!S.plan){autoInfo("Crée et choisis une histoire, puis génère son casting.");return;}
  let items=k==='p'?S.plan.persos:S.plan.scenes;
  let sel=prompt(items.map((x,i)=>`${i+1}. ${x.nom||x.titre||('Scène '+x.n)}`).join('\n')+'\nChoisis le numéro :','1'); if(sel===null)return;
- let x=items[Number(sel)-1]; if(!x){autoInfo('Numéro invalide.');return;}
- let t=k==='p'?x.planche:k==='s'?S.images[x.n]?.image:S.videos[x.n];
+ x=items[Number(sel)-1]; if(!x){autoInfo('Numéro invalide.');return;}
+ t=k==='p'?x.planche:k==='s'?S.images[x.n]?.image:S.videos[x.n];
  if(!t){autoInfo('Le prompt correspondant doit être généré dans les étapes du studio.');return;}
+ }
  if(!confirm('Lancer une seule génération via Puter ? Les quotas et frais éventuels dépendent de ton compte.'))return;
- autoBusy=true; const j=jeton;autoInfo('Génération en cours…');
+ autoBusy=true; const j=jeton;autoInfo('Génération en cours…');for(const z of ['p','s','v'])document.getElementById('auto-'+z).disabled=true;
  try{
  if(!window.puter?.ai)throw new Error('Puter indisponible.');
  if(k==='v'){
  let v=await puter.ai.txt2vid(t,{model:document.getElementById('auto-video').value.trim()});if(j!==jeton)return;
- if(!(v instanceof HTMLVideoElement))throw new Error('Résultat vidéo non reconnu.');v.controls=true;v.style.maxWidth='100%';v.style.maxHeight='480px';const box=document.getElementById('auto-media');box.replaceChildren(v);const a=document.createElement('a');a.textContent='Ouvrir / télécharger la vidéo';a.href=v.currentSrc||v.src;a.download='scene-'+x.n+'.mp4';a.target='_blank';box.append(a);autoInfo('Vidéo reçue. Vérifie les dialogues, le format et la durée.');
+ if(!(v instanceof HTMLVideoElement))throw new Error('Résultat vidéo non reconnu.');v.controls=true;v.style.maxWidth='100%';v.style.maxHeight='480px';const box=document.getElementById('auto-media');box.replaceChildren(v);const a=document.createElement('a');a.textContent='Ouvrir / télécharger la vidéo';a.href=v.currentSrc||v.src;a.download='scene-'+(x?.n||'test')+'.mp4';a.target='_blank';box.append(a);autoInfo('Vidéo reçue. Vérifie les dialogues, le format et la durée.');
  }else{
  let im=await puter.ai.txt2img(t+'\nVertical portrait 9:16, full frame, no borders.',{model:document.getElementById('auto-image').value.trim()});if(j!==jeton)return;
  if(!(im instanceof HTMLImageElement))throw new Error('Résultat image non reconnu.');
- const b=await (await fetch(im.src)).blob();if(!estImage(b))throw new Error('Format image non accepté.');if(j!==jeton)return;poser(k,k==='p'?clePerso(x):x.n,b);rafraichir();autoInfo('Image reçue et enregistrée. Vérifie sa cohérence et son format.');
+ const box=document.getElementById('auto-media');im.style.maxWidth='100%';im.style.maxHeight='600px';box.replaceChildren(im);const a=document.createElement('a');a.href=im.src;a.download='portrait.png';a.textContent='Ouvrir / télécharger l’image';a.target='_blank';box.append(a);if(!x){autoInfo('Image reçue. Vérifie le résultat.');return;}const b=await (await fetch(im.src)).blob();if(!estImage(b))throw new Error('Format image non accepté.');if(j!==jeton)return;poser(k,k==='p'?clePerso(x):x.n,b);rafraichir();autoInfo('Image reçue et enregistrée. Vérifie sa cohérence et son format.');
  }
- }catch(e){autoInfo('Échec : '+(e.message||e.code||String(e)));}finally{autoBusy=false;}
+ }catch(e){autoInfo('Échec : '+(e.message||e.code||String(e)));}finally{autoBusy=false;for(const z of ["p","s","v"])document.getElementById("auto-"+z).disabled=false;}
 }
 for(const k of ['p','s','v'])document.getElementById('auto-'+k).onclick=()=>autoMedia(k);
 
